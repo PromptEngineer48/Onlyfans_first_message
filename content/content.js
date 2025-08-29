@@ -6,8 +6,8 @@ testerURL = 'https://onlyfans.com/my/chats/chat/187889361/'
 // use test for testing and live for processing all chats
 
 const N8N_WEBHOOK_URL = MODE === 'test'
-? 'http://51.20.18.153:5678/webhook-test/75f639c8-5cc7-406a-9fdd-17f6fc03ee63'
-: 'http://51.20.18.153:5678/webhook/75f639c8-5cc7-406a-9fdd-17f6fc03ee63';
+? 'http://13.220.101.79:5678/webhook-test/5dc78ea0-704a-467e-8a9c-63518c8d7c86'
+: 'http://13.220.101.79:5678/webhook/5dc78ea0-704a-467e-8a9c-63518c8d7c86';
   
 
 // Global flag to indicate whether the extension should stop all activity
