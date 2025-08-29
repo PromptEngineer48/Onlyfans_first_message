@@ -13,6 +13,12 @@ const N8N_WEBHOOK_URL = MODE === 'test'
 // Global flag to indicate whether the extension should stop all activity
 let GLOBAL_EMERGENCY_STOP = false;
 
+// Global state to track interruptible processing
+let isCurrentlyProcessing = false;
+let currentProcessingIndex = 0;
+let allChatUrls = [];
+let processingPaused = false;
+
 // Initialize main content script
 let popupAlreadyDisplayed = false; // Track if popup has been shown
 
@@ -99,6 +105,302 @@ if (isChatsPage()) {
     setTimeout(() => {
         initializeChatsPageLogic();
     }, 500); // 500ms delay on initial script load
+}
+
+// Function to start the main interruptible processing
+function startSequentialProcessing() {
+    isCurrentlyProcessing = true;
+    
+    // Get the current index from localStorage (resume from where we left off)
+    const savedIndex = localStorage.getItem('of_current_index');
+    currentProcessingIndex = savedIndex ? parseInt(savedIndex, 10) : 0;
+    
+    allChatUrls = JSON.parse(localStorage.getItem('of_chat_urls') || '[]');
+    
+    console.log(`[OF Assistant] Starting sequential processing: ${allChatUrls.length} chats, starting from index ${currentProcessingIndex}`);
+    console.log(`[OF Assistant] MODE: ${MODE}, URLs:`, allChatUrls);
+    
+    // Start monitoring for new messages (only in live mode)
+    if (MODE === 'live') {
+        startNewMessageMonitoring();
+    } else {
+        console.log('[OF Assistant] TEST MODE: Skipping new message monitoring');
+    }
+    
+    // Begin processing
+    processNextChat();
+}
+
+// Main processing function
+function processNextChat() {
+    if (!isCurrentlyProcessing || processingPaused) return;
+    
+    if (currentProcessingIndex >= allChatUrls.length) {
+        // All chats processed
+        console.log('[OF Assistant] All chats processed successfully!');
+        isCurrentlyProcessing = false;
+        return;
+    }
+    
+    const currentChatUrl = allChatUrls[currentProcessingIndex];
+    console.log(`[OF Assistant] Processing chat ${currentProcessingIndex + 1}/${allChatUrls.length}: ${currentChatUrl}`);
+    console.log(`[OF Assistant] Current URL: ${window.location.href}`);
+    
+    // Check if we're already on the correct chat page
+    const currentUrl = window.location.href;
+    const expectedChatId = currentChatUrl.split('/').pop().replace(/\/$/, '');
+    const isCurrentChatUrl = currentUrl.includes(`/my/chats/chat/${expectedChatId}`) || 
+                           currentUrl.includes(`/chats/chat/${expectedChatId}`) ||
+                           currentUrl === currentChatUrl;
+    
+    console.log(`[OF Assistant] Expected chat ID: ${expectedChatId}`);
+    console.log(`[OF Assistant] Is current chat URL: ${isCurrentChatUrl}`);
+    
+    if (isCurrentChatUrl) {
+        // We're already on the right page, start extraction
+        console.log('[OF Assistant] Already on correct chat page, starting extraction...');
+        setTimeout(() => {
+            // Start the extraction process
+            autoScrollAndExtract(() => {
+                onMessageExtractionComplete();
+            });
+        }, 2000);
+    } else {
+        // Navigate to current chat
+        console.log(`[OF Assistant] Navigating to chat: ${currentChatUrl}`);
+        window.location.href = currentChatUrl;
+    }
+}
+
+// Function to monitor for new messages
+function startNewMessageMonitoring() {
+    // Check every 15 seconds for new messages
+    setInterval(() => {
+        if (!isCurrentlyProcessing) return;
+        
+        const newMessages = detectNewMessages();
+        if (newMessages.length > 0) {
+            console.log(`[OF Assistant] Interrupting processing for ${newMessages.length} new messages`);
+            interruptProcessing(newMessages);
+        }
+    }, 15000); // 15 seconds
+}
+
+// Detect new messages
+function detectNewMessages() {
+    const newChats = [];
+    const chatElements = document.querySelectorAll('a[href*="/my/chats/chat/"]');
+    
+    chatElements.forEach(chat => {
+        // Look for unread indicators
+        const unreadBadge = chat.querySelector('[class*="unread"], [class*="badge"], [class*="notification"]');
+        if (unreadBadge && !chat.dataset.processed) {
+            newChats.push({
+                url: chat.href,
+                priority: 'high',
+                timestamp: Date.now()
+            });
+            chat.dataset.processed = 'true';
+        }
+    });
+    
+    return newChats;
+}
+
+// Interrupt current processing for new messages
+function interruptProcessing(newMessages) {
+    // Pause current processing
+    processingPaused = true;
+    
+    // Store current state
+    localStorage.setItem('of_processing_paused', 'true');
+    localStorage.setItem('of_current_index', currentProcessingIndex.toString());
+    localStorage.setItem('of_new_messages', JSON.stringify(newMessages));
+    
+    // Process new messages first
+    processNewMessages(newMessages);
+}
+
+// Process new messages
+function processNewMessages(newMessages) {
+    console.log(`[OF Assistant] Processing ${newMessages.length} new messages first`);
+    
+    // Sort by priority (unread first)
+    newMessages.sort((a, b) => {
+        if (a.priority === 'high' && b.priority !== 'high') return -1;
+        if (b.priority === 'high' && a.priority !== 'high') return 1;
+        return b.timestamp - a.timestamp; // Newest first
+    });
+    
+    // Process each new message
+    let messageIndex = 0;
+    
+    function processNextNewMessage() {
+        if (messageIndex >= newMessages.length) {
+            // All new messages processed, resume main processing
+            resumeMainProcessing();
+            return;
+        }
+        
+        const message = newMessages[messageIndex];
+        console.log(`[OF Assistant] Processing new message ${messageIndex + 1}/${newMessages.length}: ${message.url}`);
+        
+        // Navigate to this chat
+        window.location.href = message.url;
+        
+        // After processing, move to next
+        messageIndex++;
+        
+        // Wait for page load, then continue
+        setTimeout(processNextNewMessage, 3000);
+    }
+    
+    processNextNewMessage();
+}
+
+// Resume main processing after handling new messages
+function resumeMainProcessing() {
+    console.log('[OF Assistant] Resuming main processing from index:', currentProcessingIndex);
+    
+    // Clear new message data
+    localStorage.removeItem('of_new_messages');
+    localStorage.removeItem('of_processing_paused');
+    
+    // Resume processing
+    processingPaused = false;
+    
+    // Continue from where we left off
+    setTimeout(() => {
+        processNextChat();
+    }, 2000);
+}
+
+// Function to continue processing after chat extraction
+function continueAfterExtraction() {
+    // Mark current chat as processed
+    currentProcessingIndex++;
+    localStorage.setItem('of_current_index', currentProcessingIndex.toString());
+    
+    // Check if we were interrupted
+    const wasPaused = localStorage.getItem('of_processing_paused') === 'true';
+    
+    if (wasPaused) {
+        // We were processing new messages, resume main flow
+        resumeMainProcessing();
+    } else {
+        // Continue normal processing
+        processNextChat();
+    }
+}
+
+// Enhanced function to handle extraction completion with proper state management
+function onMessageExtractionComplete() {
+    try {
+        // Get current state from localStorage
+        const urls = JSON.parse(localStorage.getItem('of_chat_urls') || '[]');
+        const idx = parseInt(localStorage.getItem('of_chat_index') || '0', 10);
+        
+        // Update the index
+        const newIdx = idx + 1;
+        localStorage.setItem('of_chat_index', newIdx.toString());
+        
+        console.log(`[OF Assistant] Extraction complete. Index: ${idx} -> ${newIdx}, Total URLs: ${urls.length}, MODE: ${MODE}`);
+        
+        if (newIdx < urls.length) {
+            // More chats to process
+            console.log(`[OF Assistant] Finished extracting chat ${idx + 1} of ${urls.length}. Moving to next chat.`);
+            
+            // Navigate to next chat
+            setTimeout(() => {
+                try {
+                    console.log(`[OF Assistant] Navigating to next chat: ${urls[newIdx]}`);
+                    window.location.href = urls[newIdx];
+                } catch (navErr) {
+                    console.error('[OF Assistant] Error navigating to next chat:', navErr);
+                    // Try to recover by going back to the chat list
+                    window.location.href = 'https://onlyfans.com/my/chats';
+                }
+            }, 2000);
+        } else {
+            // All chats processed
+            try {
+                const totalChats = urls.length || 0;
+                console.log(`[OF Assistant] ✅ COMPLETED: All ${totalChats} chats have been processed successfully!`);
+                
+                if (MODE === 'test') {
+                    console.log('[OF Assistant] TEST MODE: Test completed successfully!');
+                    alert('Test mode completed successfully! Check the console for details.');
+                }
+                
+                // Clean up localStorage
+                localStorage.removeItem('of_chat_urls');
+                localStorage.removeItem('of_chat_index');
+                localStorage.removeItem('of_force_extraction');
+                localStorage.setItem('of_scan_complete_restart', 'true');
+                
+                // Navigate back to the main chats page to trigger a restart
+                setTimeout(() => {
+                    window.location.href = 'https://onlyfans.com/my/chats';
+                }, 5000);
+                
+            } catch (resetErr) {
+                console.error('[OF Assistant] Error resetting state:', resetErr);
+            }
+        }
+    } catch (err) {
+        console.error('[OF Assistant] Error in onMessageExtractionComplete:', err);
+        // Fallback to chat list
+        window.location.href = 'https://onlyfans.com/my/chats';
+    }
+}
+
+// Function to check if we should start processing on page load
+function checkAndStartProcessing() {
+    // Check if we have chat URLs and should be processing
+    const chatUrls = localStorage.getItem('of_chat_urls');
+    const currentIndex = localStorage.getItem('of_current_index');
+    
+    if (chatUrls && currentIndex !== null) {
+        const urls = JSON.parse(chatUrls);
+        const idx = parseInt(currentIndex, 10);
+        
+        if (idx < urls.length) {
+            console.log(`[OF Assistant] Found processing state: ${idx + 1}/${urls.length} chats`);
+            
+            // Check if we're on the correct chat page
+            const expectedUrl = urls[idx];
+            const currentUrl = window.location.href;
+            const expectedChatId = expectedUrl.split('/').pop().replace(/\/$/, '');
+            const isCorrectChat = currentUrl.includes(`/my/chats/chat/${expectedChatId}`) || 
+                               currentUrl.includes(`/chats/chat/${expectedChatId}`) ||
+                               currentUrl === expectedUrl;
+            
+            if (isCorrectChat) {
+                console.log(`[OF Assistant] On correct chat page, starting extraction...`);
+                
+                // Start extraction after a delay
+                setTimeout(() => {
+                    autoScrollAndExtract(() => {
+                        onMessageExtractionComplete();
+                    });
+                }, 3000);
+            } else {
+                console.log(`[OF Assistant] Not on expected chat page, navigating...`);
+                window.location.href = expectedUrl;
+            }
+        }
+    }
+}
+
+// Add page load event listener for chat pages
+if (window.location.href.includes('/my/chats/chat/')) {
+    // Wait for page to be fully loaded
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', checkAndStartProcessing);
+    } else {
+        // Page already loaded
+        setTimeout(checkAndStartProcessing, 1000);
+    }
 }
 
 // Check if we're on the OnlyFans chats page (exact matches only)
@@ -1806,10 +2108,24 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             // Test mode: Only use the test URL
             const testUrl = testerURL;
             console.log('[OF Assistant] TEST MODE: Using single test URL:', testUrl);
+            
+            // Validate test URL
+            if (!testUrl || !testUrl.includes('/my/chats/chat/')) {
+                console.error('[OF Assistant] TEST MODE ERROR: Invalid test URL:', testUrl);
+                alert('Test mode error: Invalid test URL. Please check the testerURL variable.');
+                sendResponse({ success: false, error: 'Invalid test URL' });
+                return true;
+            }
+            
             localStorage.setItem('of_chat_urls', JSON.stringify([testUrl]));
             localStorage.setItem('of_chat_index', '0');
+            localStorage.setItem('of_current_index', '0'); // Initialize for interruptible processing
             localStorage.setItem('of_force_extraction', 'true'); // Force extraction to start
-            window.location.href = testUrl;
+            
+            // Use the same interruptible processing system for test mode
+            console.log('[OF Assistant] TEST MODE: Starting interruptible processing system...');
+            startSequentialProcessing();
+            
             sendResponse({ success: true, mode: 'test' });
             return true;
         } else {
@@ -1830,8 +2146,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     
                     localStorage.setItem('of_chat_urls', JSON.stringify(chatUrls));
                     localStorage.setItem('of_chat_index', '0');
-                    console.log(`[OF Assistant] Navigating to first chat: ${chatUrls[0]}`);
-                    window.location.href = chatUrls[0];
+                    localStorage.setItem('of_current_index', '0'); // Initialize for interruptible processing
+                    
+                    console.log(`[OF Assistant] Starting interruptible processing system...`);
+                    // Start the new interruptible processing system
+                    startSequentialProcessing();
                 });
             } else {
                 alert('Please start from the chat list page!');
@@ -1907,8 +2226,9 @@ function runSequentialExtraction() {
         return;
     }
     window.__of_extraction_started = true;
+    
     try {
-        console.log('[OF Assistant] Running sequential extraction...');
+        console.log('[OF Assistant] Starting interruptible processing system...');
         
         // Create extraction status indicator
         const statusIndicator = document.createElement('div');
@@ -1924,49 +2244,17 @@ function runSequentialExtraction() {
         statusIndicator.style.fontWeight = 'bold';
         statusIndicator.style.boxShadow = '0 0 20px rgba(0, 0, 0, 0.5)';
         statusIndicator.style.maxWidth = '350px';
-        statusIndicator.innerHTML = 'Preparing extraction...';
+        statusIndicator.innerHTML = 'Starting interruptible processing...';
         document.body.appendChild(statusIndicator);
         
-        let urls = JSON.parse(localStorage.getItem('of_chat_urls') || '[]');
-        let idx = parseInt(localStorage.getItem('of_chat_index') || '0', 10);
-
-        // --- Subset Processing Logic ---
-        const subsetCountStr = localStorage.getItem('of_process_subset_count');
-        const subsetCount = parseInt(subsetCountStr, 10);
-
-        if (!isNaN(subsetCount) && subsetCount > 0 && subsetCount < urls.length) {
-            console.log(`[OF Assistant] Subset processing enabled. Original total chats: ${urls.length}, Processing first ${subsetCount} chats.`);
-            urls = urls.slice(0, subsetCount);
-            // Adjust the total chats count displayed in the indicator
-            statusIndicator.innerHTML = `Extraction process:<br>${urls.length} total chats (subset)<br>Current index: ${idx}`;
-        } else {
-             console.log(`[OF Assistant] Subset processing not enabled or count invalid. Processing all ${urls.length} chats.`);
-             statusIndicator.innerHTML = `Extraction process:<br>${urls.length} total chats<br>Current index: ${idx}`;
-        }
-        // --- End Subset Processing Logic ---
-
-        console.log(`[OF Assistant] Running sequential extraction: ${urls.length} total chats, current index: ${idx}`);
-        statusIndicator.innerHTML = `Extraction process:<br>${urls.length} total chats<br>Current index: ${idx}`;
+        // Initialize interruptible processing
+        startSequentialProcessing();
         
-        if (!urls.length || isNaN(idx) || idx >= urls.length) {
-            // Done! Reset state and UI
-            try {
-                console.log('[OF Assistant] All chat processing is complete! Resetting state.');
-                statusIndicator.innerHTML = 'All chat processing is complete! ✅';
-                statusIndicator.style.background = 'rgba(0, 150, 0, 0.9)';
-                localStorage.removeItem('of_chat_urls');
-                localStorage.removeItem('of_chat_index');
-                localStorage.removeItem('of_force_extraction');
-                alert('Chat processing is complete!');
-            } catch (resetErr) {
-                console.error('[OF Assistant] Error resetting state:', resetErr);
-            }
-            return;
-        }
-
-        // IMPROVED: More flexible URL checking with multiple methods
-        const currentUrl = window.location.href;
-        const expectedChatId = urls[idx].split('/').pop().replace(/\/$/, '');
+    } catch (err) {
+        console.error('[OF Assistant] Error starting interruptible processing:', err);
+        window.__of_extraction_started = false;
+    }
+}
         console.log(`[OF Assistant] Checking URL match:
                     Current URL: ${currentUrl}
                     Expected chat ID: ${expectedChatId}
@@ -2146,19 +2434,6 @@ function runSequentialExtraction() {
                 window.location.href = urls[idx];
             }, 5000);
         }
-    } catch (err) {
-        console.error('[OF Assistant] Fatal error in runSequentialExtraction:', err);
-        // Try to clean up
-        try {
-            localStorage.removeItem('of_chat_urls');
-            localStorage.removeItem('of_chat_index');
-            localStorage.removeItem('of_force_extraction');
-            alert('Fatal error occurred. Process reset.');
-        } catch (cleanupErr) {
-            console.error('[OF Assistant] Error during cleanup:', cleanupErr);
-        }
-    }
-}
 
 // On page load, check if we are in the extraction process
 if (localStorage.getItem('of_chat_urls')) {
