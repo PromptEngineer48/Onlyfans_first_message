@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>OnlyFans Message Assistant</title>
+    <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+    <div id="main-ui" class="extension-container p-6 space-y-4">
+        <button id="logout-btn" style="position:absolute;top:18px;right:18px;display:none;z-index:10;background:#fff;color:#00adef;border:2px solid #00adef;border-radius:8px;padding:8px 20px;font-weight:bold;font-size:1em;box-shadow:0 2px 8px rgba(0,173,239,0.08);transition:background 0.2s,color 0.2s,border-color 0.2s,box-shadow 0.2s;cursor:pointer;">Logout</button>
+        <div class="glass-card" style="width:100%;max-width:340px;margin:0 auto;">
+            <div class="flex items-center gap-3" style="display:flex;align-items:center;gap:12px;justify-content:center;">
+                <img src="logo.png" alt="Ofagents.ai Logo" class="login-logo" style="height:48px;width:48px;filter:brightness(0) saturate(100%) invert(25%) sepia(85%) saturate(4455%) hue-rotate(268deg) brightness(89%) contrast(108%);" />
+                <span class="text-2xl font-bold">Ofagents.ai</span>
+            </div>
+            <div style="margin-top:24px;text-align:center;">
+                <button class="yes-btn glass-button" style="margin-bottom:24px; padding: 20px; font-size: 1.5em;color:#fff;border:none;border-radius:8px;">Start Auto Mode</button>
+            </div>
+        </div>
+    </div>
+    <div id="login-modal" style="display:none;">
+        <div class="extension-container flex items-center justify-center p-6">
+            <div class="glass-card w-full max-w-sm" style="width:100%;max-width:340px;margin:0 auto;">
+                <div class="flex justify-center" style="display:flex;justify-content:center;">
+                    <img src="logo.png" alt="Ofagents.ai Logo" class="login-logo" style="height:48px;width:48px;filter:brightness(0) saturate(100%) invert(25%) sepia(85%) saturate(4455%) hue-rotate(268deg) brightness(89%) contrast(108%);" />
+                </div>
+                <div class="text-2xl font-bold" style="text-align:center;margin-top:8px;">Ofagents.ai</div>
+                <div class="text-lg" style="text-align:center;margin-bottom:16px;">Log In</div>
+                <input type="email" id="login-email" class="glass-input" placeholder="Email" autocomplete="username" style="width:100%;margin-bottom:12px;padding:10px;border-radius:6px;" />
+                <input type="password" id="login-password" class="glass-input" placeholder="Password" autocomplete="current-password" style="width:100%;margin-bottom:12px;padding:10px;border-radius:6px;" />
+                <button id="login-btn" class="glass-button" style="width:100%;padding:10px 0;color:#fff;border:none;border-radius:8px;">Login</button>
+                <div id="login-error" style="color:red;margin-top:8px;"></div>
+                <div style="margin-top:16px;text-align:center;width:100%;">
+                    <a href="https://ofagents.ai/" id="show-signup-link" class="signup-login-link">Contact Us for a Free Trial</a>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="supabase.js"></script>
+    <script src="popup.js"></script>
+</body>
+</html>
