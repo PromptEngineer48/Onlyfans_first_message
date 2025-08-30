@@ -1,7 +1,7 @@
 const MODE = 'live'; // Change to 'live' for processing all chats
 // const MODE = 'test'; // Change to 'live' for processing all chats
 
-testerURL = 'https://onlyfans.com/my/chats/chat/187889361/'
+testerURL = 'https://onlyfans.com/my/chats/chat/133936482/'
 
 // use test for testing and live for processing all chats
 
@@ -2255,103 +2255,6 @@ function runSequentialExtraction() {
         window.__of_extraction_started = false;
     }
 }
-        console.log(`[OF Assistant] Checking URL match:
-                    Current URL: ${currentUrl}
-                    Expected chat ID: ${expectedChatId}
-                    Contains check: ${currentUrl.includes(expectedChatId)}
-                    Full URL check: ${currentUrl === urls[idx]}`);
-        
-        // Check if we're on the correct URL in multiple ways for reliability
-        const isCurrentChatUrl = currentUrl.includes(`/my/chats/chat/${expectedChatId}`) || 
-                               currentUrl.includes(`/chats/chat/${expectedChatId}`) ||
-                               currentUrl === urls[idx];
-        
-        if (isCurrentChatUrl) {
-            console.log(`[OF Assistant] Processing chat ${idx + 1} of ${urls.length}: ${urls[idx]}`);
-            statusIndicator.innerHTML = `Processing chat ${idx + 1} of ${urls.length}<br>Chat ID: ${expectedChatId}`;
-            statusIndicator.style.background = 'rgba(0, 100, 0, 0.9)';
-            
-            // IMPROVED: Check for forced extraction flag
-            const isForced = localStorage.getItem('of_force_extraction') === 'true';
-            if (isForced) {
-                statusIndicator.innerHTML += `<br>FORCED EXTRACTION MODE`;
-                statusIndicator.style.background = 'rgba(200, 100, 0, 0.9)';
-                console.log('[OF Assistant] FORCED EXTRACTION detected - clearing flag');
-                localStorage.removeItem('of_force_extraction');
-            }
-            
-            // Increased delay after navigation to ensure all messages load
-            setTimeout(() => {
-                try {
-                    statusIndicator.innerHTML = `Extracting messages from chat ${idx + 1}...<br>`;
-                    
-                    // IMPROVED: Cleanup any leftover UI elements before extraction
-                    try {
-                        // Remove any fixed position elements that might be overlays
-                        document.querySelectorAll('div[style*="position:fixed"], div[style*="position: fixed"]').forEach(el => {
-                            // Skip our status indicator and emergency stop button
-                            if (el === statusIndicator || el.id === 'of-emergency-stop') {
-                                return;
-                            }
-                            try {
-                                if (el.parentNode) el.parentNode.removeChild(el);
-                            } catch (e) {}
-                        });
-                    } catch (cleanupErr) {
-                        console.warn('[OF Assistant] Error in cleanup:', cleanupErr);
-                    }
-                    
-                    autoScrollAndExtract(() => {
-                        try {
-                            // Add delay after extraction completes
-                            setTimeout(() => {
-                                idx++;
-                                if (idx < urls.length) {
-                                    console.log(`[OF Assistant] Finished extracting chat ${idx} of ${urls.length}. Moving to next chat.`);
-                                    statusIndicator.innerHTML = `Finished extraction!<br>Moving to chat ${idx + 1} of ${urls.length}`;
-                                    localStorage.setItem('of_chat_index', idx.toString());
-                                    try {
-                                        console.log(`[OF Assistant] Navigating to next chat: ${urls[idx]}`);
-                                        statusIndicator.innerHTML += `<br>Navigating to next chat...`;
-                                        
-                                        // Add delay before navigation
-                                        setTimeout(() => {
-                                            // IMPROVED: Multiple navigation methods for redundancy
-                                            window.location.href = urls[idx];
-                                            
-                                            // Increased delay for backup method
-                                            setTimeout(() => {
-                                                if (window.location.href !== urls[idx]) {
-                                                    window.location.replace(urls[idx]);
-                                                }
-                                            }, 1000); // Increased from 500ms
-                                            
-                                            // Increased delay for final fallback
-                                            setTimeout(() => {
-                                                if (window.location.href !== urls[idx]) {
-                                                    const a = document.createElement('a');
-                                                    a.href = urls[idx];
-                                                    a.style.display = 'none';
-                                                    document.body.appendChild(a);
-                                                    a.click();
-                                                    document.body.removeChild(a);
-                                                }
-                                            }, 2000); // Increased from 1000ms
-                                        }, 4000); // New delay before navigation
-                                    } catch (navErr) {
-                                        console.error('[OF Assistant] Error navigating to next chat:', navErr);
-                                        // Try to recover by skipping to the next chat
-                                        idx++;
-                                        localStorage.setItem('of_chat_index', idx.toString());
-                                        if (idx < urls.length) {
-                                            console.log(`[OF Assistant] Attempting to skip to chat ${idx + 1}: ${urls[idx]}`);
-                                            window.location.href = urls[idx];
-                                        }
-                                    }
-                                } else {
-                                    // Done! All chats have been processed
-                                    try {
-                                        const totalChats = urls.length || 0;
                                         console.log(`[OF Assistant] ✅ COMPLETED: All ${totalChats} chats have been processed successfully!`);
                                         statusIndicator.innerHTML = `<span style="font-size: 20px;">✅</span> COMPLETED!<br>All ${totalChats} chats processed successfully`;
                                         statusIndicator.style.background = 'rgba(0, 150, 0, 0.9)';
@@ -2360,80 +2263,7 @@ function runSequentialExtraction() {
                                         localStorage.removeItem('of_force_extraction');
                                         localStorage.setItem('of_scan_complete_restart', 'true'); // Set flag to indicate scan completion and desire to restart
                                         
-                                        // Navigate back to the main chats page to trigger a restart
-                                        setTimeout(() => {
-                                            window.location.href = 'https://onlyfans.com/my/chats';
-                                        }, 5000); // Wait 5 seconds before navigating
-                                        
-                                    } catch (resetErr) {
-                                        console.error('[OF Assistant] Error resetting state:', resetErr);
-                                    }
-                                }
-                            }, 2000); // New delay after extraction completes
-                        } catch (indexErr) {
-                            console.error('[OF Assistant] Error updating index or navigating:', indexErr);
-                            // Try to recover by going back to the chat list
-                            try {
-                                statusIndicator.innerHTML = 'Error occurred! Resetting process.';
-                                statusIndicator.style.background = 'rgba(200, 0, 0, 0.9)';
-                                localStorage.removeItem('of_chat_urls');
-                                localStorage.removeItem('of_chat_index');
-                                localStorage.removeItem('of_force_extraction');
-                                window.location.href = 'https://onlyfans.com/my/chats';
-                            } catch (recoverErr) {
-                                console.error('[OF Assistant] Failed to recover:', recoverErr);
-                            }
-                        }
-                    });
-                } catch (scrollErr) {
-                    console.error('[OF Assistant] Error in autoScrollAndExtract:', scrollErr);
-                    // Try to continue with next chat
-                    try {
-                        statusIndicator.innerHTML = 'Error in extraction. Moving to next chat.';
-                        statusIndicator.style.background = 'rgba(200, 100, 0, 0.9)';
-                        idx++;
-                        localStorage.setItem('of_chat_index', idx.toString());
-                        if (idx < urls.length) {
-                            window.location.href = urls[idx];
-                        } else {
-                            localStorage.removeItem('of_chat_urls');
-                            localStorage.removeItem('of_chat_index');
-                            localStorage.removeItem('of_force_extraction');
-                        }
-                    } catch (recoverErr) {
-                        console.error('[OF Assistant] Failed to recover after scroll error:', recoverErr);
-                    }
-                }
-            }, 5000); // Increased from 3000ms
-        } else {
-            console.log(`[OF Assistant] Current URL doesn't match expected chat URL. Current: ${window.location.href}, Expected: ${urls[idx]}`);
-            statusIndicator.innerHTML = `URL mismatch!<br>Current: ${window.location.href}<br>Expected chat ID: ${expectedChatId}<br>Redirecting in 5 seconds...`;
-            statusIndicator.style.background = 'rgba(200, 0, 0, 0.9)';
-            
-            // IMPROVED: Add a manual navigation button
-            const manualNavButton = document.createElement('button');
-            manualNavButton.innerText = '➡️ Navigate Manually';
-            manualNavButton.style.marginTop = '10px';
-            manualNavButton.style.padding = '8px 15px';
-            manualNavButton.style.backgroundColor = '#00adef';
-            manualNavButton.style.color = 'white';
-            manualNavButton.style.border = 'none';
-            manualNavButton.style.borderRadius = '5px';
-            manualNavButton.style.cursor = 'pointer';
-            manualNavButton.style.fontWeight = 'bold';
-            manualNavButton.style.width = '100%';
-            
-            manualNavButton.addEventListener('click', function() {
-                window.location.href = urls[idx];
-            });
-            
-            statusIndicator.appendChild(manualNavButton);
-            
-            // If we're on the wrong URL, navigate to the correct one after a short delay
-            setTimeout(() => {
-                window.location.href = urls[idx];
-            }, 5000);
-        }
+
 
 // On page load, check if we are in the extraction process
 if (localStorage.getItem('of_chat_urls')) {
