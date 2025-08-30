@@ -174,37 +174,231 @@ function processNextChat() {
 
 // Function to monitor for new messages
 function startNewMessageMonitoring() {
-    // Check every 15 seconds for new messages
-    setInterval(() => {
-        if (!isCurrentlyProcessing) return;
-        
-        const newMessages = detectNewMessages();
-        if (newMessages.length > 0) {
-            console.log(`[OF Assistant] Interrupting processing for ${newMessages.length} new messages`);
-            interruptProcessing(newMessages);
-        }
-    }, 15000); // 15 seconds
+    console.log('[OF Assistant] Starting new message monitoring...');
+    // Note: We'll check for new messages after each chat completion instead of using setInterval
 }
 
-// Detect new messages
+// Function to check for new messages (called after each chat completion)
+function checkForNewMessages() {
+    if (!isCurrentlyProcessing) {
+        console.log('[OF Assistant] Not currently processing, skipping new message check');
+        return;
+    }
+    
+    console.log('[OF Assistant] Checking for new messages after chat completion...');
+    
+    // If we're on a chat page, we need to temporarily navigate to chat list to check for new messages
+    if (window.location.href.includes('/my/chats/chat/')) {
+        console.log('[OF Assistant] On chat page, temporarily navigating to chat list to check for new messages...');
+        
+        // Store current state
+        const currentUrl = window.location.href;
+        const currentIndex = currentProcessingIndex;
+        
+        // Navigate to chat list to check for new messages
+        window.location.href = 'https://onlyfans.com/my/chats';
+        
+        // Set a flag to check for new messages when we arrive at chat list
+        localStorage.setItem('of_check_new_messages', 'true');
+        localStorage.setItem('of_return_url', currentUrl);
+        localStorage.setItem('of_return_index', currentIndex.toString());
+        
+        return;
+    }
+    
+    // If we're on chat list page, check for new messages
+    const newMessages = detectNewMessages();
+    if (newMessages.length > 0) {
+        console.log(`[OF Assistant] Found ${newMessages.length} new messages! Interrupting processing...`);
+        interruptProcessing(newMessages);
+    } else {
+        console.log('[OF Assistant] No new messages found, continuing with next chat...');
+        
+        // If we came here to check for new messages, return to the original chat
+        const checkFlag = localStorage.getItem('of_check_new_messages');
+        if (checkFlag === 'true') {
+            console.log('[OF Assistant] Returning to original chat after checking for new messages...');
+            localStorage.removeItem('of_check_new_messages');
+            const returnUrl = localStorage.getItem('of_return_url');
+            const returnIndex = localStorage.getItem('of_return_index');
+            
+            if (returnUrl) {
+                localStorage.removeItem('of_return_url');
+                localStorage.removeItem('of_return_index');
+                window.location.href = returnUrl;
+            }
+        }
+    }
+}
+
+// Detect new messages - works from any page
 function detectNewMessages() {
     const newChats = [];
-    const chatElements = document.querySelectorAll('a[href*="/my/chats/chat/"]');
     
-    chatElements.forEach(chat => {
-        // Look for unread indicators
-        const unreadBadge = chat.querySelector('[class*="unread"], [class*="badge"], [class*="notification"]');
-        if (unreadBadge && !chat.dataset.processed) {
-            newChats.push({
-                url: chat.href,
-                priority: 'high',
-                timestamp: Date.now()
-            });
-            chat.dataset.processed = 'true';
-        }
-    });
+    // If we're on a chat page, we need to navigate back to the chat list to check for new messages
+    if (window.location.href.includes('/my/chats/chat/')) {
+        console.log('[OF Assistant] On chat page, cannot detect new messages from here');
+        return newChats;
+    }
+    
+    // If we're on the chat list page, check for new messages
+    if (window.location.href.includes('/my/chats')) {
+        console.log('[OF Assistant] On chat list page, checking for new messages...');
+        
+        // Look for chat elements in the chat list
+        const chatElements = document.querySelectorAll('a[href*="/my/chats/chat/"]');
+        console.log(`[OF Assistant] Found ${chatElements.length} chat elements to check`);
+        
+        chatElements.forEach((chat, index) => {
+            // Method 1: Look for OnlyFans specific unread flag (b-chats__item__uread-count)
+            let unreadBadge = chat.querySelector('.b-chats__item__uread-count');
+            if (unreadBadge) {
+                console.log(`[OF Assistant] Found OnlyFans unread flag on chat ${index + 1}: ${chat.href}`);
+            } else {
+                // Method 2: Look for other visual unread indicators (fallback)
+                const unreadSelectors = [
+                    '[class*="unread"]',
+                    '[class*="badge"]', 
+                    '[class*="notification"]',
+                    '[class*="count"]',
+                    '[class*="dot"]',
+                    '[class*="indicator"]',
+                    '[class*="mark"]',
+                    '[class*="new"]',
+                    '[class*="alert"]'
+                ];
+                
+                for (const selector of unreadSelectors) {
+                    unreadBadge = chat.querySelector(selector);
+                    if (unreadBadge) {
+                        console.log(`[OF Assistant] Found unread indicator with selector "${selector}" on chat ${index + 1}: ${chat.href}`);
+                        break;
+                    }
+                }
+            }
+            
+            // Method 2: Look for numeric indicators (like "1", "2", "99+")
+            if (!unreadBadge) {
+                const allElements = chat.querySelectorAll('*');
+                for (const element of allElements) {
+                    const text = element.textContent?.trim();
+                    if (text && /^\d+(\+)?$/.test(text) && parseInt(text) > 0) {
+                        console.log(`[OF Assistant] Found numeric indicator "${text}" on chat ${index + 1}: ${chat.href}`);
+                        unreadBadge = element;
+                        break;
+                    }
+                }
+            }
+            
+            // Method 3: Look for recent messages based on timestamps
+            if (!unreadBadge) {
+                const timeElements = chat.querySelectorAll('[class*="time"], [class*="date"], [class*="timestamp"]');
+                for (const timeElement of timeElements) {
+                    const timeText = timeElement.textContent?.trim();
+                    if (timeText) {
+                        console.log(`[OF Assistant] Found time element "${timeText}" on chat ${index + 1}: ${chat.href}`);
+                        
+                        // Check if it's a recent time (within last 5 minutes)
+                        const now = new Date();
+                        const isRecent = this.isRecentTime(timeText, now);
+                        
+                        if (isRecent) {
+                            console.log(`[OF Assistant] Found recent message at "${timeText}" on chat ${index + 1}: ${chat.href}`);
+                            unreadBadge = timeElement;
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            // Method 4: Look for recent message previews
+            if (!unreadBadge) {
+                const messageElements = chat.querySelectorAll('[class*="message"], [class*="text"], [class*="content"], [class*="preview"]');
+                for (const msgElement of messageElements) {
+                    const msgText = msgElement.textContent?.trim();
+                    if (msgText && msgText.length > 0) {
+                        console.log(`[OF Assistant] Found message preview "${msgText.substring(0, 50)}..." on chat ${index + 1}: ${chat.href}`);
+                        
+                        // If this is a recent message (not processed before), consider it new
+                        if (!chat.dataset.processed) {
+                            console.log(`[OF Assistant] Found unprocessed message on chat ${index + 1}: ${chat.href}`);
+                            unreadBadge = msgElement;
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            if (unreadBadge && !chat.dataset.processed) {
+                console.log(`[OF Assistant] Adding new message for chat ${index + 1}: ${chat.href}`);
+                console.log(`[OF Assistant] Unread badge found:`, unreadBadge);
+                console.log(`[OF Assistant] Chat element:`, chat);
+                newChats.push({
+                    url: chat.href,
+                    priority: 'high',
+                    timestamp: Date.now()
+                });
+                chat.dataset.processed = 'true';
+            } else if (!unreadBadge) {
+                console.log(`[OF Assistant] No unread flag found for chat ${index + 1}: ${chat.href}`);
+            } else if (chat.dataset.processed) {
+                console.log(`[OF Assistant] Chat ${index + 1} already processed: ${chat.href}`);
+            }
+        });
+        
+        console.log(`[OF Assistant] Detected ${newChats.length} new messages`);
+    }
     
     return newChats;
+}
+
+// Helper function to check if a time string is recent
+function isRecentTime(timeText, now) {
+    try {
+        // Handle various time formats
+        const lowerTime = timeText.toLowerCase();
+        
+        // "now", "just now", "a moment ago"
+        if (lowerTime.includes('now') || lowerTime.includes('moment')) {
+            return true;
+        }
+        
+        // "2 minutes ago", "5 minutes ago"
+        if (lowerTime.includes('minute')) {
+            const minutes = parseInt(lowerTime.match(/(\d+)/)?.[1] || '0');
+            return minutes <= 5;
+        }
+        
+        // "2 hours ago", "1 hour ago"
+        if (lowerTime.includes('hour')) {
+            const hours = parseInt(lowerTime.match(/(\d+)/)?.[1] || '0');
+            return hours <= 1;
+        }
+        
+        // "11:30 am", "2:15 pm" - check if it's today and recent
+        if (timeText.match(/\d{1,2}:\d{2}\s*(am|pm)/i)) {
+            const timeMatch = timeText.match(/(\d{1,2}):(\d{2})\s*(am|pm)/i);
+            if (timeMatch) {
+                let hours = parseInt(timeMatch[1]);
+                const minutes = parseInt(timeMatch[2]);
+                const period = timeMatch[3].toLowerCase();
+                
+                if (period === 'pm' && hours !== 12) hours += 12;
+                if (period === 'am' && hours === 12) hours = 0;
+                
+                const messageTime = new Date();
+                messageTime.setHours(hours, minutes, 0, 0);
+                
+                const diffMinutes = Math.abs(now - messageTime) / (1000 * 60);
+                return diffMinutes <= 5;
+            }
+        }
+        
+        return false;
+    } catch (err) {
+        console.warn('[OF Assistant] Error parsing time:', err);
+        return false;
+    }
 }
 
 // Interrupt current processing for new messages
@@ -269,6 +463,10 @@ function resumeMainProcessing() {
     // Resume processing
     processingPaused = false;
     
+    // Check for new messages before continuing
+    console.log('[OF Assistant] Checking for new messages before resuming...');
+    checkForNewMessages();
+    
     // Continue from where we left off
     setTimeout(() => {
         processNextChat();
@@ -280,6 +478,11 @@ function continueAfterExtraction() {
     // Mark current chat as processed
     currentProcessingIndex++;
     localStorage.setItem('of_current_index', currentProcessingIndex.toString());
+    
+    console.log(`[OF Assistant] Chat ${currentProcessingIndex} completed. Checking for new messages...`);
+    
+    // Check for new messages after each chat completion
+    checkForNewMessages();
     
     // Check if we were interrupted
     const wasPaused = localStorage.getItem('of_processing_paused') === 'true';
@@ -400,6 +603,34 @@ if (window.location.href.includes('/my/chats/chat/')) {
     } else {
         // Page already loaded
         setTimeout(checkAndStartProcessing, 1000);
+    }
+}
+
+// Handle return from new message checking
+if (window.location.href.includes('/my/chats') && !window.location.href.includes('/my/chats/chat/')) {
+    const checkFlag = localStorage.getItem('of_check_new_messages');
+    if (checkFlag === 'true') {
+        console.log('[OF Assistant] Arrived at chat list to check for new messages...');
+        
+        // Wait a bit for the page to load, then check for new messages
+        setTimeout(() => {
+            const newMessages = detectNewMessages();
+            if (newMessages.length > 0) {
+                console.log(`[OF Assistant] Found ${newMessages.length} new messages! Interrupting processing...`);
+                interruptProcessing(newMessages);
+            } else {
+                console.log('[OF Assistant] No new messages found, returning to original chat...');
+                localStorage.removeItem('of_check_new_messages');
+                const returnUrl = localStorage.getItem('of_return_url');
+                const returnIndex = localStorage.getItem('of_return_index');
+                
+                if (returnUrl) {
+                    localStorage.removeItem('of_return_url');
+                    localStorage.removeItem('of_return_index');
+                    window.location.href = returnUrl;
+                }
+            }
+        }, 3000); // Wait 3 seconds for page to load
     }
 }
 
@@ -2255,13 +2486,6 @@ function runSequentialExtraction() {
         window.__of_extraction_started = false;
     }
 }
-                                        console.log(`[OF Assistant] ✅ COMPLETED: All ${totalChats} chats have been processed successfully!`);
-                                        statusIndicator.innerHTML = `<span style="font-size: 20px;">✅</span> COMPLETED!<br>All ${totalChats} chats processed successfully`;
-                                        statusIndicator.style.background = 'rgba(0, 150, 0, 0.9)';
-                                        localStorage.removeItem('of_chat_urls');
-                                        localStorage.removeItem('of_chat_index');
-                                        localStorage.removeItem('of_force_extraction');
-                                        localStorage.setItem('of_scan_complete_restart', 'true'); // Set flag to indicate scan completion and desire to restart
                                         
 
 
@@ -2550,7 +2774,16 @@ async function autoScrollAndExtract(doneCallback) {
             '.b-chat__messages',
             '.b-chat__messages-wrapper',
             '[class*="messages"]',
-            '[class*="scroll"]'
+            '[class*="scroll"]',
+            '[class*="chat"]',
+            '[class*="conversation"]',
+            '[class*="message-list"]',
+            '[class*="message-container"]',
+            '[class*="chat-container"]',
+            '[class*="conversation-container"]',
+            'main',
+            'article',
+            'section'
         ];
         let chatScroll = null;
         let usedSelector = '';
@@ -2568,16 +2801,51 @@ async function autoScrollAndExtract(doneCallback) {
         }
         if (!chatScroll) {
             console.error('[OF Assistant] Could not find chat scroll container with any selector!');
-            const allMessages = Array.from(document.querySelectorAll('*')).filter(el => {
+            
+            // Better debugging - show all elements with potential chat-related classes
+            const allElements = Array.from(document.querySelectorAll('*')).filter(el => {
                 try {
-                    return el.className && el.className.toString().includes('messages');
+                    const className = el.className?.toString() || '';
+                    return className.includes('messages') || 
+                           className.includes('chat') || 
+                           className.includes('conversation') ||
+                           className.includes('scroll') ||
+                           className.includes('message');
                 } catch (err) {
                     return false;
                 }
             });
-            console.log('[OF Assistant] Elements with "messages" in class:', allMessages);
-            if (typeof doneCallback === 'function') doneCallback();
-            return;
+            
+            console.log('[OF Assistant] Potential chat elements found:', allElements.length);
+            allElements.forEach((el, index) => {
+                console.log(`[OF Assistant] Element ${index + 1}:`, {
+                    tagName: el.tagName,
+                    className: el.className,
+                    id: el.id,
+                    scrollHeight: el.scrollHeight,
+                    clientHeight: el.clientHeight
+                });
+            });
+            
+            // Try to find any scrollable element as fallback
+            const scrollableElements = Array.from(document.querySelectorAll('*')).filter(el => {
+                try {
+                    return el.scrollHeight > el.clientHeight && el.scrollHeight > 100;
+                } catch (err) {
+                    return false;
+                }
+            });
+            
+            if (scrollableElements.length > 0) {
+                console.log('[OF Assistant] Found scrollable elements as fallback:', scrollableElements.length);
+                chatScroll = scrollableElements[0];
+                usedSelector = 'fallback-scrollable-element';
+                console.log(`[OF Assistant] Using fallback scrollable element:`, chatScroll);
+            } else {
+                console.error('[OF Assistant] No scrollable elements found!');
+                if (typeof doneCallback === 'function') doneCallback();
+                return;
+            }
         } else {
             console.log(`[OF Assistant] Found chat scroll container with selector: ${usedSelector}`);
         }
